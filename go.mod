@@ -6,8 +6,8 @@ require (
 	github.com/knadh/koanf v1.3.0
 	github.com/levigross/grequests v0.0.0-20190908174114-253788527a1a
 	github.com/maczh/mgconfig v1.1.7
-	github.com/maczh/tdengine v1.0.1
-	github.com/nacos-group/nacos-sdk-go v1.0.9
+	github.com/maczh/tdengine v1.0.2
+	github.com/sadlil/gologger v0.0.0-20180131031757-2507bf651df8
 )
 
 require (
@@ -63,6 +63,7 @@ require (
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
+	github.com/nacos-group/nacos-sdk-go v1.0.9 // indirect
 	github.com/nxadm/tail v1.4.8 // indirect
 	github.com/olivere/elastic v6.2.37+incompatible // indirect
 	github.com/pkg/errors v0.9.1 // indirect
@@ -71,7 +72,6 @@ require (
 	github.com/prometheus/common v0.26.0 // indirect
 	github.com/prometheus/procfs v0.6.0 // indirect
 	github.com/rogpeppe/go-internal v1.8.1 // indirect
-	github.com/sadlil/gologger v0.0.0-20180131031757-2507bf651df8 // indirect
 	github.com/shiena/ansicolor v0.0.0-20200904210342-c7312218db18 // indirect
 	github.com/sirupsen/logrus v1.6.0 // indirect
 	github.com/socifi/jazz v0.0.0-20190320083647-de4180400893 // indirect
