@@ -19,6 +19,26 @@ go:
             timeout: 300
 ```
 
+## 多库连接的配置文件范例
+```yaml
+go:
+  data:
+    tdengine:
+      multidb: true
+      dbNames: test1,test2
+      test1:
+        dsn: user1:password1@tcp(tdengine-server1:6030)/db1
+      test2:
+        dsn: user2:password2@tcp(tdengine-server2:6030)/db2
+      debug: true
+      pool:
+          min: 2
+          max: 20
+          idle: 60
+          timeout: 300
+```
+
+
 ## 在应用主配置文件中的配置
 ```yaml
 go:
@@ -67,6 +87,14 @@ func main(){
 ## 获取tdengine连接
 ```go
     td,err := mgtdengine.GetTDengineConnection()
+    if err != nil {
+    	logs.Error("TDengine connection error: {}", err.Error())
+    }
+```
+
+## 多库支持时获取指定库tdengine连接
+```go
+    td,err := mgtdengine.GetTDengineConnection("test1")
     if err != nil {
     	logs.Error("TDengine connection error: {}", err.Error())
     }
