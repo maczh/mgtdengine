@@ -76,17 +76,16 @@ go:
 ```go
 func main(){
 	...
-	mgconfig.InitConfig(configFile)
-    defer mgconfig.SaveExit()
+	mgin.Init(configFile)
+    defer mgin.MGin.SaveExit()
 	// 初始化TDengine连接
-	mgtdengine.TDengineInit()
-	defer mgtdengine.TDengineClose
+    mgin.MGin.Use("tdengine", mgtdengine.TDengine.Init, mgtdengine.TDengine.Close, mgtdengine.TDengine.Check)
 }
 ```
 
 ## 获取tdengine连接
 ```go
-    td,err := mgtdengine.GetTDengineConnection()
+    td,err := mgtdengine.TDengine.GetConnection()
     if err != nil {
     	logs.Error("TDengine connection error: {}", err.Error())
     }
@@ -94,7 +93,7 @@ func main(){
 
 ## 多库支持时获取指定库tdengine连接
 ```go
-    td,err := mgtdengine.GetTDengineConnection("test1")
+    td,err := mgtdengine.TDengine.GetConnection("test1")
     if err != nil {
     	logs.Error("TDengine connection error: {}", err.Error())
     }
