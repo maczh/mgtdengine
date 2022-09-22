@@ -1,4 +1,4 @@
-# mgconfig框架之tdengine插件
+# MGin框架之tdengine插件
 
 ## 引入
 ```go
@@ -99,3 +99,6 @@ func main(){
     	logs.Error("TDengine connection error: {}", err.Error())
     }
 ```
+
+## 更新日志
+- v1.1.0 更新为MGin框架插件，不再依赖mgconfig包
