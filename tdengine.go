@@ -140,18 +140,18 @@ func (t *mgtdengine) check(dbName string) error {
 		td = td.Database(databaseName)
 		t.tdClients[dbName] = td
 	} else {
-		_, err := t.tdClients[dbName].DB.Exec("SHOW DATABASES;")
-		if err != nil {
-			td, err := tdengine.New(t.tdDsns[dbName])
-			if err != nil {
-				logger.Error(dbName + " TDengine connection error: " + err.Error())
-				return err
-			}
-			td.ConnPool(t.poolCfg)
-			databaseName := t.tdDsns[dbName][strings.LastIndex(t.tdDsns[dbName], "/")+1:]
-			td = td.Database(databaseName)
-			t.tdClients[dbName] = td
-		}
+		//_, err := t.tdClients[dbName].DB.Exec("SHOW DATABASES;")
+		//if err != nil {
+		//	td, err := tdengine.New(t.tdDsns[dbName])
+		//	if err != nil {
+		//		logger.Error(dbName + " TDengine connection error: " + err.Error())
+		//		return err
+		//	}
+		//	td.ConnPool(t.poolCfg)
+		//	databaseName := t.tdDsns[dbName][strings.LastIndex(t.tdDsns[dbName], "/")+1:]
+		//	td = td.Database(databaseName)
+		//	t.tdClients[dbName] = td
+		//}
 	}
 	return nil
 }
@@ -179,11 +179,11 @@ func (t *mgtdengine) Check() {
 				return
 			}
 		} else {
-			_, err := t.taos.DB.Exec("SHOW DATABASES;")
-			if err != nil {
-				t.Close()
-				t.Init("")
-			}
+			//_, err := t.taos.DB.Exec("SHOW DATABASES;")
+			//if err != nil {
+			//	t.Close()
+			//	t.Init("")
+			//}
 		}
 	}
 	logger.Debug("TDengine connection check successful")
