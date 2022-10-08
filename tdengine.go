@@ -156,7 +156,7 @@ func (t *mgtdengine) check(dbName string) error {
 	return nil
 }
 
-func (t *mgtdengine) Check() {
+func (t *mgtdengine) Check() error {
 	if t.multitd {
 		for dbName, _ := range t.tdClients {
 			_ = t.check(dbName)
@@ -167,7 +167,7 @@ func (t *mgtdengine) Check() {
 			t.Init("")
 			if t.taos == nil {
 				logger.Error("TDengine reconnect failed")
-				return
+				return fmt.Errorf("TDengine connection closed")
 			}
 		}
 		err := t.taos.Ping()
@@ -176,7 +176,7 @@ func (t *mgtdengine) Check() {
 			t.Init("")
 			if t.taos == nil {
 				logger.Error("TDengine reconnect failed")
-				return
+				return err
 			}
 		} else {
 			//_, err := t.taos.DB.Exec("SHOW DATABASES;")
@@ -187,7 +187,7 @@ func (t *mgtdengine) Check() {
 		}
 	}
 	logger.Debug("TDengine connection check successful")
-	return
+	return nil
 }
 
 func (t *mgtdengine) GetConnection(dbName ...string) (*tdengine.TDengine, error) {
@@ -198,7 +198,7 @@ func (t *mgtdengine) GetConnection(dbName ...string) (*tdengine.TDengine, error)
 		err := t.check(dbName[0])
 		return t.tdClients[dbName[0]], err
 	} else {
-		t.Check()
-		return t.taos, nil
+		err := t.Check()
+		return t.taos, err
 	}
 }
