@@ -1,7 +1,6 @@
 package mgtdengine
 
 import (
-	"errors"
 	"fmt"
 	"github.com/knadh/koanf"
 	"github.com/knadh/koanf/parsers/yaml"
@@ -13,13 +12,13 @@ import (
 )
 
 type mgtdengine struct {
-	taos      *tdengine.TDengine
-	tdClients map[string]*tdengine.TDengine
-	tdDsns    map[string]string
-	multitd   bool
-	poolCfg   tdengine.Config
-	conf      *koanf.Koanf
-	confUrl   string
+	tdDsns   map[string]string
+	tdDbName map[string]string
+	multitd  bool
+	debug    bool
+	poolCfg  tdengine.Config
+	conf     *koanf.Koanf
+	confUrl  string
 }
 
 var TDengine = &mgtdengine{}
@@ -33,172 +32,95 @@ func (t *mgtdengine) Init(tdengineConfigUrl string) {
 		logger.Error("TDengine配置Url为空")
 		return
 	}
-	var err error
-	if t.taos == nil && len(t.tdClients) == 0 {
-		if t.conf == nil {
-			logger.Debug("正在获取TDengine配置: " + t.confUrl)
-			resp, err := grequests.Get(t.confUrl, nil)
-			if err != nil {
-				logger.Error("TDengine配置下载失败! " + err.Error())
-				return
+	if t.conf == nil {
+		logger.Debug("正在获取TDengine配置: " + t.confUrl)
+		resp, err := grequests.Get(t.confUrl, nil)
+		if err != nil {
+			logger.Error("TDengine配置下载失败! " + err.Error())
+			return
+		}
+		t.conf = koanf.New(".")
+		err = t.conf.Load(rawbytes.Provider([]byte(resp.String())), yaml.Parser())
+		if err != nil {
+			logger.Error("TDengine配置文件解析错误:" + err.Error())
+			t.conf = nil
+			return
+		}
+	}
+	t.multitd = t.conf.Bool("go.data.tdengine.multidb")
+	t.debug = t.conf.Bool("go.data.tdengine.debug")
+	t.poolCfg = tdengine.Config{
+		MaxIdelConns:    t.conf.Int("go.data.tdengine.pool.max"),
+		MaxOpenConns:    t.conf.Int("go.data.tdengine.pool.min"),
+		MaxIdelTimeout:  t.conf.Int("go.data.tdengine.pool.idle"),
+		MaxConnLifetime: t.conf.Int("go.data.tdengine.pool.timeout"),
+	}
+	if t.poolCfg.MaxOpenConns == 0 {
+		t.poolCfg.MaxIdelConns = 10
+	}
+	if t.poolCfg.MaxIdelConns < t.poolCfg.MaxOpenConns {
+		t.poolCfg.MaxIdelConns = 5 * t.poolCfg.MaxOpenConns
+	}
+	if t.poolCfg.MaxIdelTimeout == 0 {
+		t.poolCfg.MaxIdelTimeout = 60
+	}
+	if t.poolCfg.MaxConnLifetime < t.poolCfg.MaxIdelTimeout {
+		t.poolCfg.MaxConnLifetime = 5 * t.poolCfg.MaxIdelTimeout
+	}
+	t.tdDsns = make(map[string]string)
+	t.tdDbName = make(map[string]string)
+	if t.multitd {
+		dbNames := strings.Split(t.conf.String("go.data.tdengine.dbNames"), ",")
+		for _, dbName := range dbNames {
+			if dbName == "" || t.conf.String(fmt.Sprintf("go.data.tdengine.%s.dsn", dbName)) == "" {
+				logger.Error(dbName + " TDengine dsn 未配置")
+				continue
 			}
-			t.conf = koanf.New(".")
-			err = t.conf.Load(rawbytes.Provider([]byte(resp.String())), yaml.Parser())
-			if err != nil {
-				logger.Error("TDengine配置文件解析错误:" + err.Error())
-				t.conf = nil
-				return
-			}
+			dsn := t.conf.String(fmt.Sprintf("go.data.tdengine.%s.dsn", dbName))
+			t.tdDsns[dbName] = dsn
+			t.tdDbName[dbName] = dsn[strings.LastIndex(dsn, "/")+1:]
 		}
-		t.multitd = t.conf.Bool("go.data.tdengine.multidb")
-		t.poolCfg = tdengine.Config{
-			MaxIdelConns:    t.conf.Int("go.data.tdengine.pool.max"),
-			MaxOpenConns:    t.conf.Int("go.data.tdengine.pool.min"),
-			MaxIdelTimeout:  t.conf.Int("go.data.tdengine.pool.idle"),
-			MaxConnLifetime: t.conf.Int("go.data.tdengine.pool.timeout"),
+	} else {
+		dsn := t.conf.String("go.data.tdengine.dsn")
+		t.tdDsns["0"] = dsn
+		t.tdDbName["0"] = t.conf.String("go.data.tdengine.db")
+		if t.tdDbName["0"] == "" {
+			t.tdDbName["0"] = dsn[strings.LastIndex(dsn, "/")+1:]
 		}
-		if t.poolCfg.MaxOpenConns == 0 {
-			t.poolCfg.MaxIdelConns = 10
-		}
-		if t.poolCfg.MaxIdelConns < t.poolCfg.MaxOpenConns {
-			t.poolCfg.MaxIdelConns = 5 * t.poolCfg.MaxOpenConns
-		}
-		if t.poolCfg.MaxIdelTimeout == 0 {
-			t.poolCfg.MaxIdelTimeout = 60
-		}
-		if t.poolCfg.MaxConnLifetime < t.poolCfg.MaxIdelTimeout {
-			t.poolCfg.MaxConnLifetime = 5 * t.poolCfg.MaxIdelTimeout
-		}
+	}
+}
+
+func (t *mgtdengine) connect(dbName ...string) (*tdengine.TDengine, error) {
+	dsn := ""
+	db := ""
+	if len(dbName) == 0 {
 		if t.multitd {
-			t.tdClients = make(map[string]*tdengine.TDengine)
-			t.tdDsns = make(map[string]string)
-			dbNames := strings.Split(t.conf.String("go.data.tdengine.dbNames"), ",")
-			for _, dbName := range dbNames {
-				if dbName == "" || t.conf.String(fmt.Sprintf("go.data.tdengine.%s.dsn", dbName)) == "" {
-					logger.Error(dbName + " TDengine dsn 未配置")
-					continue
-				}
-				dsn := t.conf.String(fmt.Sprintf("go.data.tdengine.%s.dsn", dbName))
-				td, err := tdengine.New(dsn)
-				if err != nil {
-					logger.Error(dbName + " TDengine connection error: " + err.Error())
-					continue
-				}
-				td.ConnPool(t.poolCfg)
-				if t.conf.Bool("go.data.tdengine.debug") {
-					td = td.SetDebug()
-				}
-				databaseName := dsn[strings.LastIndex(dsn, "/")+1:]
-				td = td.Database(databaseName)
-				t.tdClients[dbName] = td
-				t.tdDsns[dbName] = dsn
-			}
-		} else {
-			dsn := t.conf.String("go.data.tdengine.dsn")
-			t.taos, err = tdengine.New(dsn)
-			if err != nil {
-				logger.Error("TDengine connection error: " + err.Error())
-				return
-			}
-			t.taos.ConnPool(t.poolCfg)
-			if t.conf.Bool("go.data.tdengine.debug") {
-				t.taos = t.taos.SetDebug()
-			}
-			databaseName := dsn[strings.LastIndex(dsn, "/")+1:]
-			if databaseName == "" {
-				databaseName = t.conf.String("go.data.tdengine.db")
-			}
-			t.taos = t.taos.Database(databaseName)
+			return nil, fmt.Errorf("TDengine多库连接必须指定库名")
 		}
-	}
-}
-
-func (t *mgtdengine) Close() {
-	if t.multitd {
-		for dbName, _ := range t.tdClients {
-			t.tdClients[dbName].Close()
-			delete(t.tdClients, dbName)
-		}
+		dsn = t.tdDsns["0"]
+		db = t.tdDbName["0"]
 	} else {
-		err := t.taos.Close()
-		if err != nil {
-			logger.Error("TDengine close error: " + err.Error())
+		if !t.multitd {
+			return nil, fmt.Errorf("TDengine单库连接不允许指定库名")
 		}
-		t.taos = nil
+		dsn = t.tdDsns[dbName[0]]
+		if dsn == "" {
+			return nil, fmt.Errorf("TDengine名为%s的连接串不存在", dbName[0])
+		}
+		db = t.tdDbName[dbName[0]]
 	}
-}
-
-func (t *mgtdengine) check(dbName string) error {
-	if t.tdClients[dbName] == nil || t.tdClients[dbName].Ping() != nil {
-		td, err := tdengine.New(t.tdDsns[dbName])
-		if err != nil {
-			logger.Error(dbName + " TDengine connection error: " + err.Error())
-			return err
-		}
-		td.ConnPool(t.poolCfg)
-		databaseName := t.tdDsns[dbName][strings.LastIndex(t.tdDsns[dbName], "/")+1:]
-		td = td.Database(databaseName)
-		t.tdClients[dbName] = td
-	} else {
-		//_, err := t.tdClients[dbName].DB.Exec("SHOW DATABASES;")
-		//if err != nil {
-		//	td, err := tdengine.New(t.tdDsns[dbName])
-		//	if err != nil {
-		//		logger.Error(dbName + " TDengine connection error: " + err.Error())
-		//		return err
-		//	}
-		//	td.ConnPool(t.poolCfg)
-		//	databaseName := t.tdDsns[dbName][strings.LastIndex(t.tdDsns[dbName], "/")+1:]
-		//	td = td.Database(databaseName)
-		//	t.tdClients[dbName] = td
-		//}
+	td, err := tdengine.New(dsn)
+	if err != nil {
+		logger.Error("TDengine connection error: " + err.Error())
+		return nil, err
 	}
-	return nil
-}
-
-func (t *mgtdengine) Check() error {
-	if t.multitd {
-		for dbName, _ := range t.tdClients {
-			_ = t.check(dbName)
-		}
-	} else {
-		if t.taos == nil {
-			logger.Error("TDengine connection closed")
-			t.Init("")
-			if t.taos == nil {
-				logger.Error("TDengine reconnect failed")
-				return fmt.Errorf("TDengine connection closed")
-			}
-		}
-		err := t.taos.Ping()
-		if err != nil {
-			t.Close()
-			t.Init("")
-			if t.taos == nil {
-				logger.Error("TDengine reconnect failed")
-				return err
-			}
-		} else {
-			//_, err := t.taos.DB.Exec("SHOW DATABASES;")
-			//if err != nil {
-			//	t.Close()
-			//	t.Init("")
-			//}
-		}
+	td.ConnPool(t.poolCfg)
+	if t.debug {
+		td = td.SetDebug()
 	}
-	logger.Debug("TDengine connection check successful")
-	return nil
+	return td.Database(db), nil
 }
 
 func (t *mgtdengine) GetConnection(dbName ...string) (*tdengine.TDengine, error) {
-	if t.multitd {
-		if len(dbName) == 0 || len(dbName) > 1 {
-			return nil, errors.New("Multidb get tdengine connection must be one databaseName")
-		}
-		err := t.check(dbName[0])
-		return t.tdClients[dbName[0]], err
-	} else {
-		err := t.Check()
-		return t.taos, err
-	}
+	return t.connect(dbName...)
 }

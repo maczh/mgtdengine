@@ -5,7 +5,7 @@ go 1.17
 require (
 	github.com/knadh/koanf v1.3.0
 	github.com/levigross/grequests v0.0.0-20190908174114-253788527a1a
-	github.com/maczh/tdengine v1.0.8
+	github.com/maczh/tdengine v1.0.9
 	github.com/sadlil/gologger v0.0.0-20180131031757-2507bf651df8
 )
 
