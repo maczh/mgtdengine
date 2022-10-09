@@ -79,7 +79,7 @@ func main(){
 	mgin.Init(configFile)
     defer mgin.MGin.SaveExit()
 	// 初始化TDengine连接
-    mgin.MGin.Use("tdengine", mgtdengine.TDengine.Init, mgtdengine.TDengine.Close, mgtdengine.TDengine.Check)
+    mgin.MGin.Use("tdengine", mgtdengine.TDengine.Init, nil, nil)
 }
 ```
 
@@ -89,6 +89,7 @@ func main(){
     if err != nil {
     	logs.Error("TDengine connection error: {}", err.Error())
     }
+    defer td.Close()
 ```
 
 ## 多库支持时获取指定库tdengine连接
@@ -97,7 +98,10 @@ func main(){
     if err != nil {
     	logs.Error("TDengine connection error: {}", err.Error())
     }
+    defer td.Close()
 ```
 
 ## 更新日志
 - v1.1.0 更新为MGin框架插件，不再依赖mgconfig包
+- v1.1.6 增加对Restful模式连接配置支持
+- v1.1.7 变更成短连接模式，避免taos驱动本身的长连接Idle故障
