@@ -54,9 +54,10 @@ func (t *mgtdengine) Init(tdengineConfigUrl string) {
 		MinConns:        t.conf.Int("go.data.tdengine.pool.min"),
 		MaxIdelTimeout:  t.conf.Int("go.data.tdengine.pool.idle"),
 		MaxConnLifetime: t.conf.Int("go.data.tdengine.pool.timeout"),
+		QueryTimeout:    t.conf.Int("go.data.tdengine.pool.query_timeout"),
 	}
 	if t.poolCfg.MinConns == 0 {
-		t.poolCfg.MinConns = 10
+		t.poolCfg.MinConns = 1
 	}
 	if t.poolCfg.MaxConns < t.poolCfg.MinConns {
 		t.poolCfg.MaxConns = 5 * t.poolCfg.MinConns
@@ -66,6 +67,9 @@ func (t *mgtdengine) Init(tdengineConfigUrl string) {
 	}
 	if t.poolCfg.MaxConnLifetime < t.poolCfg.MaxIdelTimeout {
 		t.poolCfg.MaxConnLifetime = 5 * t.poolCfg.MaxIdelTimeout
+	}
+	if t.poolCfg.QueryTimeout == 0 {
+		t.poolCfg.QueryTimeout = 120
 	}
 	t.tdDsns = make(map[string]string)
 	t.tdDbName = make(map[string]string)
@@ -106,27 +110,11 @@ func (t *mgtdengine) GetConnection(dbName ...string) (*mgTdConnection, error) {
 }
 
 func (t *mgtdengine) Check() error {
-	for _, pool := range t.tdPools {
-		needIdle := pool.poolConfig.MinConns - len(pool.usingConns)
-		if needIdle < 0 {
-			needIdle = 0
-		}
-		for i, _ := range pool.freeConns {
-			if needIdle > 0 {
-				pool.release(i)
-			} else {
-				pool.connections[i] = pool.connections[i].reconnect()
-			}
-			needIdle--
-		}
-	}
 	return nil
 }
 
 func (t *mgtdengine) Close() {
 	for _, pool := range t.tdPools {
-		for i := 0; i < len(pool.connections); i++ {
-			pool.release(i)
-		}
+		pool.close()
 	}
 }

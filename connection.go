@@ -11,6 +11,7 @@ type mgTdConnection struct {
 	connection *tdengine.TDengine  //连接
 	connTime   time.Time           //建立连接时间
 	returnTime time.Time           //归还时间
+	usingTime  time.Time           //取用时间
 	connected  bool                //是否连接的状态
 	index      int                 //连接池数组下标
 	pool       *mgTdConnectionPool //所属连接池
@@ -33,6 +34,7 @@ func newConnect(dsn string) (*mgTdConnection, error) {
 
 func (c *mgTdConnection) reconnect() *mgTdConnection {
 	c.connection.Close()
+	logger.Debug("reconnecting to : " + c.dsn)
 	td, err := tdengine.New(c.dsn)
 	if err != nil {
 		logger.Error("TDengine connection error: " + err.Error())
@@ -48,6 +50,7 @@ func (c *mgTdConnection) reconnect() *mgTdConnection {
 }
 
 func (c *mgTdConnection) TDengine() *tdengine.TDengine {
+	c.usingTime = time.Now()
 	return c.connection
 }
 
