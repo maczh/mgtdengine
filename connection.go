@@ -15,11 +15,11 @@ type mgTdConnection struct {
 }
 
 func newConnect() *mgTdConnection {
-	return &mgTdConnection{
-		connTime:   time.Now(),
-		returnTime: time.Now(),
-		connected:  false,
-	}
+	conn := new(mgTdConnection)
+	conn.connTime = time.Now()
+	conn.returnTime = time.Now()
+	conn.connected = false
+	return conn
 }
 
 func (c *mgTdConnection) New(dsn string, pool *mgTdConnectionPool) *mgTdConnection {
@@ -39,6 +39,7 @@ func (c *mgTdConnection) TDengine() *tdengine.TDengine {
 }
 
 func (c *mgTdConnection) Close() {
+	logger.Debug("归还TDengine连接")
 	c.returnTime = time.Now()
 	c.pool.pool.Put(c)
 }
