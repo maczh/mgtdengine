@@ -1,8 +1,10 @@
 # MGin框架之tdengine插件
 
+- 本插件v3版本用于支持TDengine v3.x版本
+
 ## 引入
 ```go
-import "github.com/maczh/mgtdengine"
+import "github.com/maczh/mgtdengine/v3"
 ```
 
 ## 配置文件，存放于配置中心
@@ -102,6 +104,4 @@ func main(){
 ```
 
 ## 更新日志
-- v1.1.0 更新为MGin框架插件，不再依赖mgconfig包
-- v1.1.6 增加对Restful模式连接配置支持
-- v1.1.7 变更成短连接模式，避免taos驱动本身的长连接Idle故障
+- v3.0.0 改成支持TDengine v3.x版本，新增对本地配置文件的支持
