@@ -6,9 +6,7 @@ import (
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/rawbytes"
 	"github.com/levigross/grequests"
-	"github.com/maczh/tdengine/v3"
 	"github.com/sadlil/gologger"
-	"io/ioutil"
 	"strings"
 )
 
@@ -17,9 +15,10 @@ type mgtdengine struct {
 	tdDbName map[string]string
 	multitd  bool
 	debug    bool
-	poolCfg  tdengine.Config
+	poolCfg  connectionPoolConfig
 	conf     *koanf.Koanf
 	confUrl  string
+	tdPools  map[string]*mgTdConnectionPool
 }
 
 var TDengine = &mgtdengine{}
@@ -35,24 +34,13 @@ func (t *mgtdengine) Init(tdengineConfigUrl string) {
 	}
 	if t.conf == nil {
 		logger.Debug("正在获取TDengine配置: " + t.confUrl)
-		var confData []byte
-		var err error
-		if strings.HasPrefix(t.confUrl, "http://") {
-			resp, err := grequests.Get(t.confUrl, nil)
-			if err != nil {
-				logger.Error("TDengine配置下载失败! " + err.Error())
-				return
-			}
-			confData = []byte(resp.String())
-		} else {
-			confData, err = ioutil.ReadFile(t.confUrl)
-			if err != nil {
-				logger.Error(fmt.Sprintf("TDengine本地配置文件%s读取失败:%s", t.confUrl, err.Error()))
-				return
-			}
+		resp, err := grequests.Get(t.confUrl, nil)
+		if err != nil {
+			logger.Error("TDengine配置下载失败! " + err.Error())
+			return
 		}
 		t.conf = koanf.New(".")
-		err = t.conf.Load(rawbytes.Provider(confData), yaml.Parser())
+		err = t.conf.Load(rawbytes.Provider([]byte(resp.String())), yaml.Parser())
 		if err != nil {
 			logger.Error("TDengine配置文件解析错误:" + err.Error())
 			t.conf = nil
@@ -61,17 +49,18 @@ func (t *mgtdengine) Init(tdengineConfigUrl string) {
 	}
 	t.multitd = t.conf.Bool("go.data.tdengine.multidb")
 	t.debug = t.conf.Bool("go.data.tdengine.debug")
-	t.poolCfg = tdengine.Config{
-		MaxIdelConns:    t.conf.Int("go.data.tdengine.pool.max"),
-		MaxOpenConns:    t.conf.Int("go.data.tdengine.pool.min"),
+	t.poolCfg = connectionPoolConfig{
+		MaxConns:        t.conf.Int("go.data.tdengine.pool.max"),
+		MinConns:        t.conf.Int("go.data.tdengine.pool.min"),
 		MaxIdelTimeout:  t.conf.Int("go.data.tdengine.pool.idle"),
 		MaxConnLifetime: t.conf.Int("go.data.tdengine.pool.timeout"),
+		QueryTimeout:    t.conf.Int("go.data.tdengine.pool.query_timeout"),
 	}
-	if t.poolCfg.MaxOpenConns == 0 {
-		t.poolCfg.MaxIdelConns = 10
+	if t.poolCfg.MinConns == 0 {
+		t.poolCfg.MinConns = 1
 	}
-	if t.poolCfg.MaxIdelConns < t.poolCfg.MaxOpenConns {
-		t.poolCfg.MaxIdelConns = 5 * t.poolCfg.MaxOpenConns
+	if t.poolCfg.MaxConns < t.poolCfg.MinConns {
+		t.poolCfg.MaxConns = 5 * t.poolCfg.MinConns
 	}
 	if t.poolCfg.MaxIdelTimeout == 0 {
 		t.poolCfg.MaxIdelTimeout = 60
@@ -79,8 +68,12 @@ func (t *mgtdengine) Init(tdengineConfigUrl string) {
 	if t.poolCfg.MaxConnLifetime < t.poolCfg.MaxIdelTimeout {
 		t.poolCfg.MaxConnLifetime = 5 * t.poolCfg.MaxIdelTimeout
 	}
+	if t.poolCfg.QueryTimeout == 0 {
+		t.poolCfg.QueryTimeout = 120
+	}
 	t.tdDsns = make(map[string]string)
 	t.tdDbName = make(map[string]string)
+	t.tdPools = make(map[string]*mgTdConnectionPool)
 	if t.multitd {
 		dbNames := strings.Split(t.conf.String("go.data.tdengine.dbNames"), ",")
 		for _, dbName := range dbNames {
@@ -91,6 +84,7 @@ func (t *mgtdengine) Init(tdengineConfigUrl string) {
 			dsn := t.conf.String(fmt.Sprintf("go.data.tdengine.%s.dsn", dbName))
 			t.tdDsns[dbName] = dsn
 			t.tdDbName[dbName] = dsn[strings.LastIndex(dsn, "/")+1:]
+			t.tdPools[dbName] = poolInit(dsn, &t.poolCfg)
 		}
 	} else {
 		dsn := t.conf.String("go.data.tdengine.dsn")
@@ -99,40 +93,28 @@ func (t *mgtdengine) Init(tdengineConfigUrl string) {
 		if t.tdDbName["0"] == "" {
 			t.tdDbName["0"] = dsn[strings.LastIndex(dsn, "/")+1:]
 		}
+		t.tdPools["0"] = poolInit(dsn, &t.poolCfg)
 	}
 }
 
-func (t *mgtdengine) connect(dbName ...string) (*tdengine.TDengine, error) {
-	dsn := ""
-	db := ""
-	if len(dbName) == 0 {
-		if t.multitd {
-			return nil, fmt.Errorf("TDengine多库连接必须指定库名")
-		}
-		dsn = t.tdDsns["0"]
-		db = t.tdDbName["0"]
-	} else {
-		if !t.multitd {
-			return nil, fmt.Errorf("TDengine单库连接不允许指定库名")
-		}
-		dsn = t.tdDsns[dbName[0]]
-		if dsn == "" {
-			return nil, fmt.Errorf("TDengine名为%s的连接串不存在", dbName[0])
-		}
-		db = t.tdDbName[dbName[0]]
+func (t *mgtdengine) connect(dbName ...string) (*mgTdConnection, error) {
+	dbn := "0"
+	if len(dbName) > 0 {
+		dbn = dbName[0]
 	}
-	td, err := tdengine.New(dsn)
-	if err != nil {
-		logger.Error("TDengine connection error: " + err.Error())
-		return nil, err
-	}
-	td.ConnPool(t.poolCfg)
-	if t.debug {
-		td = td.SetDebug()
-	}
-	return td.Database(db), nil
+	return t.tdPools[dbn].GetConnection()
 }
 
-func (t *mgtdengine) GetConnection(dbName ...string) (*tdengine.TDengine, error) {
+func (t *mgtdengine) GetConnection(dbName ...string) (*mgTdConnection, error) {
 	return t.connect(dbName...)
+}
+
+func (t *mgtdengine) Check() error {
+	return nil
+}
+
+func (t *mgtdengine) Close() {
+	for _, pool := range t.tdPools {
+		pool.close()
+	}
 }
