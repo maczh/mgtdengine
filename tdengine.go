@@ -7,6 +7,7 @@ import (
 	"github.com/knadh/koanf/providers/rawbytes"
 	"github.com/levigross/grequests"
 	"github.com/sadlil/gologger"
+	"io/ioutil"
 	"strings"
 )
 
@@ -34,13 +35,24 @@ func (t *mgtdengine) Init(tdengineConfigUrl string) {
 	}
 	if t.conf == nil {
 		logger.Debug("正在获取TDengine配置: " + t.confUrl)
-		resp, err := grequests.Get(t.confUrl, nil)
-		if err != nil {
-			logger.Error("TDengine配置下载失败! " + err.Error())
-			return
+		var confData []byte
+		var err error
+		if strings.HasPrefix(t.confUrl, "http://") {
+			resp, err := grequests.Get(t.confUrl, nil)
+			if err != nil {
+				logger.Error("TDengine配置下载失败! " + err.Error())
+				return
+			}
+			confData = []byte(resp.String())
+		} else {
+			confData, err = ioutil.ReadFile(t.confUrl)
+			if err != nil {
+				logger.Error(fmt.Sprintf("TDengine本地配置文件%s读取失败:%s", t.confUrl, err.Error()))
+				return
+			}
 		}
 		t.conf = koanf.New(".")
-		err = t.conf.Load(rawbytes.Provider([]byte(resp.String())), yaml.Parser())
+		err = t.conf.Load(rawbytes.Provider(confData), yaml.Parser())
 		if err != nil {
 			logger.Error("TDengine配置文件解析错误:" + err.Error())
 			t.conf = nil
